@@ -1,4 +1,67 @@
-from os import set_blocking
+import numpy as np
+import re
+import csv
+from matplotlib import pyplot as plt
+
+parse_refs_regex = re.compile("(\*)?{(.*?),(.*?)}")
+# Initial size 10x10
+s = np.ndarray([10,10], dtype=object)
+s.fill("")
+p = np.ndarray(s.shape, dtype=object)
+o = np.ndarray(s.shape, dtype=object)
+f = np.ndarray(s.shape, dtype=object)
+
+def check_pos(i,j):
+	if(i<0 or j<0 or i>s.shape[0] or j>s.shape[1]):
+		return False
+	return True
+
+def parse_cell(i, j):
+	if(not check_pos(i,j)):
+		return
+	current_s = s[i][j][1:] # remove the "=" in the string
+	while True:
+		delta = 0
+		matches = list() # List of matches
+		for match in re.finditer(parse_refs_regex, current_s):
+			matches.append(match)
+		if len(matches) == 0:
+			break
+		for match in matches:
+			ref_groups = match.groups()
+			referenced_i_str = ref_groups[-2]
+			referenced_j_str = ref_groups[-1]
+			resulting_val = ""
+			resulting_i = 0
+			resulting_j = 0
+			# This part could be made to be parsed by another engine instead of using "exec"
+			resulting_i = eval(referenced_i_str)
+			resulting_j = eval(referenced_j_str)
+			if(ref_groups[0] == '*'):
+				resulting_val = p[resulting_i][resulting_j]
+			else:
+				resulting_val = str(f[resulting_i][resulting_j])
+			matched_span = match.span()
+			current_s = current_s[:matched_span[0]+delta] + resulting_val + current_s[matched_span[1]+delta:]
+			# Correct position for next replacement (Because you cannot reverse a callable_terator)
+			delta = len(resulting_val) - (matched_span[1]-matched_span[0])
+	return current_s
+
+
+def process_cell(i,j):
+	item = s[i][j]
+	if item != "" and item[0] == '=':
+		p[i][j] = parse_cell(i,j)
+		o[i][j] = eval(p[i][j]) # Execution of the generated command
+		f[i][j] = str(o[i][j])
+	else:
+		p[i][j] = s[i][j]
+		o[i][j] = p[i][j]
+		f[i][j] = str(o[i][j])
+
+
+# END OF RUNCSV CODE (Had to be pasted instead of imported to prevent global variables mistakes in Python)
+
 import sys
 import gc
 
@@ -28,16 +91,12 @@ from PyQt5.QtWidgets import (
 	QToolBar,
 	QFileDialog
 )
-
 import csv
-from runcsv import *
+
 
 # Priorities:
-# TODO ASAP: Save file and Open file
-# TODO: Fancy selection using "Shift"
 # TODO: Quality of life:
 #	- Tab button has to be fixed someday
-
 
 class MainWindow(QMainWindow):
 	def __init__(self):
@@ -81,7 +140,7 @@ class MainWindow(QMainWindow):
 
 		# Formula editor
 		self.formulaEdit = FormulaEdit(self, self)
-		self.formulaEdit.textChanged.connect(self.onFormulaChange)
+		self.formulaEdit.textEdited.connect(self.onFormulaChange)
 		self.formulaEdit.returnPressed.connect(self.formulaReturnPress)
 
 		# Table
@@ -110,6 +169,7 @@ class MainWindow(QMainWindow):
 	
 	def onCellChanged(self):
 		# TODO: There should be a way to press Escape and return back to where we were
+		global s,p,o,f
 		self.affectCell(self.ci, self.cj) # Maybe not the most efficient way to do it
 		self.ci = self.tableWidget.currentRow()
 		self.cj = self.tableWidget.currentColumn()
@@ -117,10 +177,15 @@ class MainWindow(QMainWindow):
 			self.formulaEdit.clearFocus()
 		else:
 			self.formulaEdit.setFocus()
-			self.formulaEdit.setText(s[self.ci][self.cj])
-	
+			if(s[self.ci][self.cj]=="" or s[self.ci][self.cj]==0):
+				self.formulaEdit.setText("")
+			else:
+				self.formulaEdit.setText(s[self.ci][self.cj])
+			
 	def onFormulaChange(self):
-		s[self.ci][self.cj] = self.formulaEdit.text()
+		global s,p,o,f
+		capturedText = self.formulaEdit.text()
+		s[self.ci][self.cj] = capturedText
 	
 	def down(self):
 		if(self.ci!=s.shape[0]-1):
@@ -147,17 +212,18 @@ class MainWindow(QMainWindow):
 				self.affectCell(i,j)
 	
 	def affectCell(self,i,j):
+		global s,p,o,f
 		try:
 			process_cell(i,j)
 			newitem = QTableWidgetItem(f[i][j])
 			self.tableWidget.setItem(i,j, newitem)
 			if(s[i][j] != "" and s[i][j][0] == "="):
-				self.tableWidget.item(i,j).setBackground(QColor(100,200,200))
-		except ValueError as e:
+				self.tableWidget.item(i,j).setBackground(QColor(100,200,100))
+		except TypeError:
 			print("There was an error in cell {"+str(i)+","+str(j)+"}:")
-			print(e)
 
 	def keyPressEvent(self, event):
+		global s,p,o,f
 		key = event.key()
 		if(key == Qt.Key_Delete):
 			for modelIndex in self.tableWidget.selectedIndexes():
@@ -174,6 +240,7 @@ class MainWindow(QMainWindow):
 		QApplication.clipboard().setText(selectionString)
 	
 	def getRange(self):
+		global s,p,o,f
 		# Returns a string from the table selection and selection mode
 		selectionRanges = self.tableWidget.selectedRanges()
 		selectionRange = selectionRanges[0]
@@ -181,10 +248,19 @@ class MainWindow(QMainWindow):
 		max_i = selectionRange.bottomRow()+1
 		min_j = selectionRange.leftColumn()
 		max_j = selectionRange.rightColumn()+1
-		selectionString = "["+str(min_i)+":"+str(max_i)+","+str(min_j)+":"+str(max_j)+"]"
+		if(max_i-1==min_i):
+			i_range_string = str(min_i)
+		else:
+			i_range_string = str(min_i)+":"+str(max_i)
+		if(max_j-1==min_j):
+			j_range_string = str(min_j)
+		else:
+			j_range_string = str(min_j)+":"+str(max_j)
+		selectionString = "["+i_range_string+","+j_range_string+"]"
 		return selectionString
 
 	def addEquals(self):
+		global s,p,o,f
 		for selectionRange in self.tableWidget.selectedRanges():
 			min_i = selectionRange.topRow()
 			max_i = selectionRange.bottomRow()+1
@@ -199,6 +275,7 @@ class MainWindow(QMainWindow):
 					self.affectCell(current_i,current_j)
 
 	def saveFile(self):
+		global s,p,o,f
 		fileDialog = QFileDialog()
 		name = fileDialog.getSaveFileName(self, 'Save File',"file.csv")
 		if(name[0] is not None and name[0] != ""):
@@ -209,6 +286,7 @@ class MainWindow(QMainWindow):
 			print("No file specified, exiting...")
 
 	def openFile(self):
+		global s,p,o,f
 		fileDialog = QFileDialog()
 		name = fileDialog.getOpenFileName(self, 'Open File')
 		if(name[0] is not None and name[0] != ""):
@@ -223,7 +301,7 @@ class MainWindow(QMainWindow):
 			p.resize(s.shape,refcheck=False)
 			o.resize(s.shape,refcheck=False)
 			f.resize(s.shape,refcheck=False)
-			gc.collect()
+			#gc.collect()
 			self.refreshTableSize()
 			self.runSheet()
 		else:
@@ -234,35 +312,25 @@ class MainWindow(QMainWindow):
 		self.tableWidget.setColumnCount(s.shape[1])
 		self.tableWidget.setHorizontalHeaderLabels([str(i) for i in range(0,s.shape[1])])
 		self.tableWidget.setVerticalHeaderLabels([str(i) for i in range(0,s.shape[0])])
-		print(s.shape)
-		print(p.shape)
-		print(o.shape)
-		print(f.shape)
+		#self.runSheet()
 	
 	def addRow(self):
-		s.resize((s.shape[0]+1, s.shape[1]),refcheck=False)
-		p.resize((s.shape[0], s.shape[1]),refcheck=False)
-		o.resize((s.shape[0], s.shape[1]),refcheck=False)
-		f.resize((s.shape[0], s.shape[1]),refcheck=False)
-		s[s.shape[0]-1,:] = ""
-		p[s.shape[0]-1,:] = ""
-		o[s.shape[0]-1,:] = None
-		f[s.shape[0]-1,:] = ""
+		global s,p,o,f
+		s = np.insert(s, (s.shape[0]), np.array([""]*(s.shape[1]),dtype=object), 0)
+		p = np.insert(p, (p.shape[0]), np.array([""]*(p.shape[1]),dtype=object), 0)
+		o = np.insert(o, (o.shape[0]), np.array([None]*(o.shape[1]),dtype=object), 0)
+		f = np.insert(f, (f.shape[0]), np.array([""]*(f.shape[1]),dtype=object), 0)
 		self.refreshTableSize()
 
 	def addColumn(self):
-		s.resize((s.shape[0], s.shape[1]+1),refcheck=False)
-		p.resize(s.shape,refcheck=False)
-		o.resize(s.shape,refcheck=False)
-		f.resize(s.shape,refcheck=False)
-		s[:,-1] = ""
-		p[:,-1] = ""
-		o[:,-1] = None
-		f[:,-1] = ""
+		global s,p,o,f
+		s = np.insert(s, (s.shape[1]), np.array([""]*(s.shape[0]),dtype=object), 1)
+		p = np.insert(p, (p.shape[1]), np.array([""]*(p.shape[0]),dtype=object), 1)
+		o = np.insert(o, (o.shape[1]), np.array([None]*(o.shape[0]),dtype=object), 1)
+		f = np.insert(f, (f.shape[1]), np.array([""]*(f.shape[0]),dtype=object), 1)
 		self.refreshTableSize()
 
 
-# TODO: Add rows and columns
 # TODO: Add Tab function?
 
 class FormulaEdit(QLineEdit):

@@ -34,11 +34,6 @@ import numpy as np
 # TODO: Quality of life:
 #	- Tab button has to be fixed someday
 
-s = rcsv.s
-p = rcsv.p
-o = rcsv.p
-f = rcsv.f
-
 class MainWindow(QMainWindow):
 	def __init__(self):
 		super().__init__()
@@ -86,10 +81,10 @@ class MainWindow(QMainWindow):
 
 		# Table
 		self.tableWidget = QTableWidget(self)
-		self.tableWidget.setRowCount(s.shape[0])
-		self.tableWidget.setColumnCount(s.shape[1])
-		self.tableWidget.setHorizontalHeaderLabels([str(i) for i in range(s.shape[0])])
-		self.tableWidget.setVerticalHeaderLabels([str(i) for i in range(s.shape[1])])
+		self.tableWidget.setRowCount(rcsv.s.shape[0])
+		self.tableWidget.setColumnCount(rcsv.s.shape[1])
+		self.tableWidget.setHorizontalHeaderLabels([str(i) for i in range(rcsv.s.shape[0])])
+		self.tableWidget.setVerticalHeaderLabels([str(i) for i in range(rcsv.s.shape[1])])
 		self.tableWidget.itemSelectionChanged.connect(self.onCellChanged)
 
 		# Run button
@@ -118,18 +113,18 @@ class MainWindow(QMainWindow):
 			self.formulaEdit.clearFocus()
 		else:
 			self.formulaEdit.setFocus()
-			if(s[self.ci][self.cj]=="" or s[self.ci][self.cj]==0):
+			if(rcsv.s[self.ci][self.cj]=="" or rcsv.s[self.ci][self.cj]==0):
 				self.formulaEdit.setText("")
 			else:
-				self.formulaEdit.setText(s[self.ci][self.cj])
+				self.formulaEdit.setText(rcsv.s[self.ci][self.cj])
 			
 	def onFormulaChange(self):
 		global s,p,o,f
 		capturedText = self.formulaEdit.text()
-		s[self.ci][self.cj] = capturedText
+		rcsv.s[self.ci][self.cj] = capturedText
 	
 	def down(self):
-		if(self.ci!=s.shape[0]-1):
+		if(self.ci!=rcsv.s.shape[0]-1):
 			self.tableWidget.setCurrentCell(self.ci+1,self.cj)
 
 	def up(self):
@@ -137,7 +132,7 @@ class MainWindow(QMainWindow):
 			self.tableWidget.setCurrentCell(self.ci-1,self.cj)
 
 	def right(self):
-		if(self.cj!=s.shape[1]-1):
+		if(self.cj!=rcsv.s.shape[1]-1):
 			self.tableWidget.setCurrentCell(self.ci,self.cj+1)
 
 	def left(self):
@@ -148,17 +143,17 @@ class MainWindow(QMainWindow):
 		self.down()
 	
 	def runSheet(self):
-		for i in np.arange(s.shape[0]):
-			for j in np.arange(s.shape[1]):
+		for i in np.arange(rcsv.s.shape[0]):
+			for j in np.arange(rcsv.s.shape[1]):
 				self.affectCell(i,j)
 	
 	def affectCell(self,i,j):
 		global s,p,o,f
 		try:
 			rcsv.process_cell(i,j)
-			newitem = QTableWidgetItem(f[i][j])
+			newitem = QTableWidgetItem(rcsv.f[i][j])
 			self.tableWidget.setItem(i,j, newitem)
-			if(s[i][j] != "" and s[i][j][0] == "="):
+			if(rcsv.s[i][j] != "" and rcsv.s[i][j][0] == "="):
 				self.tableWidget.item(i,j).setBackground(QColor(100,200,100))
 		except Exception as e:
 			print("There was an error in cell {"+str(i)+","+str(j)+"}:")
@@ -172,7 +167,7 @@ class MainWindow(QMainWindow):
 			for modelIndex in self.tableWidget.selectedIndexes():
 				row = modelIndex.row()
 				column = modelIndex.column()
-				s[row][column] = ""
+				rcsv.s[row][column] = ""
 				self.affectCell(row,column)
 		QWidget.keyPressEvent(self,event)
 
@@ -211,10 +206,10 @@ class MainWindow(QMainWindow):
 			max_j = selectionRange.rightColumn()+1
 			for current_i in range(min_i,max_i):
 				for current_j in range(min_j,max_j):
-					if(s[current_i][current_j][0] != "="):
-						s[current_i][current_j] = "="+s[current_i][current_j]
+					if(rcsv.s[current_i][current_j][0] != "="):
+						rcsv.s[current_i][current_j] = "="+rcsv.s[current_i][current_j]
 					else:
-						s[current_i][current_j] = s[current_i][current_j][1:]
+						rcsv.s[current_i][current_j] = rcsv.s[current_i][current_j][1:]
 					self.affectCell(current_i,current_j)
 
 	def saveFile(self):
@@ -239,11 +234,12 @@ class MainWindow(QMainWindow):
 				s_l = list(reader)
 
 			s_l_arr = np.array(s_l, dtype=object)
-			s.resize(s_l_arr.shape,refcheck=False)
-			s[:,:] = np.copy(s_l_arr)
-			p.resize(s.shape,refcheck=False)
-			o.resize(s.shape,refcheck=False)
-			f.resize(s.shape,refcheck=False)
+
+			rcsv.s.resize(s_l_arr.shape,refcheck=False)
+			rcsv.s[:,:] = np.copy(s_l_arr)
+			rcsv.p.resize(rcsv.s.shape,refcheck=False)
+			rcsv.o.resize(rcsv.s.shape,refcheck=False)
+			rcsv.f.resize(rcsv.s.shape,refcheck=False)
 			#gc.collect()
 			self.refreshTableSize()
 			self.runSheet()
@@ -251,26 +247,24 @@ class MainWindow(QMainWindow):
 			print("No file specified, exiting...")
 
 	def refreshTableSize(self):
-		self.tableWidget.setRowCount(s.shape[0])
-		self.tableWidget.setColumnCount(s.shape[1])
-		self.tableWidget.setHorizontalHeaderLabels([str(i) for i in range(0,s.shape[1])])
-		self.tableWidget.setVerticalHeaderLabels([str(i) for i in range(0,s.shape[0])])
+		self.tableWidget.setRowCount(rcsv.s.shape[0])
+		self.tableWidget.setColumnCount(rcsv.s.shape[1])
+		self.tableWidget.setHorizontalHeaderLabels([str(i) for i in range(0,rcsv.s.shape[1])])
+		self.tableWidget.setVerticalHeaderLabels([str(i) for i in range(0,rcsv.s.shape[0])])
 		#self.runSheet()
 	
 	def addRow(self):
-		global s,p,o,f
-		s = np.insert(s, (s.shape[0]), np.array([""]*(s.shape[1]),dtype=object), 0)
-		p = np.insert(p, (p.shape[0]), np.array([""]*(p.shape[1]),dtype=object), 0)
-		o = np.insert(o, (o.shape[0]), np.array([None]*(o.shape[1]),dtype=object), 0)
-		f = np.insert(f, (f.shape[0]), np.array([""]*(f.shape[1]),dtype=object), 0)
+		rcsv.s = np.insert(rcsv.s, (rcsv.s.shape[0]), np.array([""]*(rcsv.s.shape[1]),dtype=object), 0)
+		rcsv.p = np.insert(rcsv.p, (rcsv.p.shape[0]), np.array([""]*(rcsv.p.shape[1]),dtype=object), 0)
+		rcsv.o = np.insert(rcsv.o, (rcsv.o.shape[0]), np.array([None]*(rcsv.o.shape[1]),dtype=object), 0)
+		rcsv.f = np.insert(rcsv.f, (rcsv.f.shape[0]), np.array([""]*(rcsv.f.shape[1]),dtype=object), 0)
 		self.refreshTableSize()
 
 	def addColumn(self):
-		global s,p,o,f
-		s = np.insert(s, (s.shape[1]), np.array([""]*(s.shape[0]),dtype=object), 1)
-		p = np.insert(p, (p.shape[1]), np.array([""]*(p.shape[0]),dtype=object), 1)
-		o = np.insert(o, (o.shape[1]), np.array([None]*(o.shape[0]),dtype=object), 1)
-		f = np.insert(f, (f.shape[1]), np.array([""]*(f.shape[0]),dtype=object), 1)
+		rcsv.s = np.insert(rcsv.s, (rcsv.s.shape[1]), np.array([""]*(rcsv.s.shape[0]),dtype=object), 1)
+		rcsv.p = np.insert(rcsv.p, (rcsv.p.shape[1]), np.array([""]*(rcsv.p.shape[0]),dtype=object), 1)
+		rcsv.o = np.insert(rcsv.o, (rcsv.o.shape[1]), np.array([None]*(rcsv.o.shape[0]),dtype=object), 1)
+		rcsv.f = np.insert(rcsv.f, (rcsv.f.shape[1]), np.array([""]*(rcsv.f.shape[0]),dtype=object), 1)
 		self.refreshTableSize()
 
 
